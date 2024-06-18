@@ -556,6 +556,9 @@ pub fn build_ui(application: &Application) {
     area_apply_label.set_label(&bundle.format_pattern(bundle.get_message("apply").unwrap()
                                                       .value().unwrap(), None, &mut vec![]).to_string());
     area_set_button.connect_clicked(move |_| {
+        _area_capture
+            .borrow_mut()
+            .get_window_by_name(_area_chooser_window.title().unwrap().as_str());
         _area_chooser_window.hide();
     });
 
