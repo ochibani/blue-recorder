@@ -1,17 +1,22 @@
-use adw::{Application, Window};
 use adw::gio::File;
-use adw::gtk::{AboutDialog, Builder, Button, CheckButton, ComboBoxText, CssProvider, Entry, Expander, FileChooserNative,
-               FileChooserAction, Image, Label, MessageDialog, SpinButton, TextBuffer, TextView, ToggleButton, Widget};
+use adw::gtk::{
+    AboutDialog, Builder, Button, CheckButton, ComboBoxText, CssProvider, Entry, Expander,
+    FileChooserAction, FileChooserNative, Image, Label, MessageDialog, SpinButton, TextBuffer,
+    TextView, ToggleButton, Widget,
+};
 use adw::prelude::*;
+use adw::{Application, Window};
 use anyhow::Result;
 #[cfg(any(target_os = "freebsd", target_os = "linux"))]
 use blue_recorder_core::ffmpeg_linux::Ffmpeg;
 #[cfg(target_os = "windows")]
 use blue_recorder_core::ffmpeg_windows::Ffmpeg;
-use blue_recorder_core::utils::{disable_input_widgets, enable_input_widgets,
-                                is_overwrite, is_wayland, play_record, RecordMode};
 #[cfg(any(target_os = "freebsd", target_os = "linux"))]
 use blue_recorder_core::utils::{audio_output_source, sources_descriptions_list};
+use blue_recorder_core::utils::{
+    disable_input_widgets, enable_input_widgets, is_overwrite, is_wayland, play_record, RecordMode,
+};
+use blue_recorder_core::wayland_linux::WaylandRecorder;
 #[cfg(target_os = "windows")]
 use cpal::traits::{DeviceTrait, HostTrait};
 use std::cell::RefCell;
@@ -19,8 +24,8 @@ use std::ops::Add;
 use std::path::Path;
 use std::rc::Rc;
 
+use crate::timer::{recording_delay, start_timer, stop_timer, RecordClick};
 use crate::{area_capture, config_management, fluent::get_bundle};
-use crate::timer::{RecordClick, recording_delay, start_timer, stop_timer};
 
 pub fn run_ui(application: &Application) {
     // Error dialog
@@ -47,7 +52,7 @@ pub fn run_ui(application: &Application) {
     match build_ui(application, error_dialog.clone(), error_message.clone()) {
         Ok(_) => {
             // Continue
-        },
+        }
         Err(error) => {
             let text_buffer = TextBuffer::new(None);
             text_buffer.set_text(&error.to_string());
@@ -58,14 +63,17 @@ pub fn run_ui(application: &Application) {
     }
 }
 
-fn build_ui(application: &Application, error_dialog: MessageDialog, error_message: TextView) -> Result<()> {
+fn build_ui(
+    application: &Application,
+    error_dialog: MessageDialog,
+    error_message: TextView,
+) -> Result<()> {
     // Init audio source
     #[cfg(target_os = "windows")]
     let host_audio_device = cpal::default_host();
 
     // Config initialize
     config_management::initialize();
-
     // UI source
     let about_dialog_ui_src = include_str!("../interfaces/about_dialog.ui").to_string();
     let area_selection_ui_src = include_str!("../interfaces/area_selection.ui").to_string();
@@ -74,10 +82,16 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
     let select_window_ui_src = include_str!("../interfaces/select_window.ui").to_string();
 
     let builder: Builder = Builder::from_string(main_ui_src.as_str());
-    builder.add_from_string(about_dialog_ui_src.as_str()).unwrap();
-    builder.add_from_string(area_selection_ui_src.as_str()).unwrap();
+    builder
+        .add_from_string(about_dialog_ui_src.as_str())
+        .unwrap();
+    builder
+        .add_from_string(area_selection_ui_src.as_str())
+        .unwrap();
     builder.add_from_string(delay_ui_src.as_str()).unwrap();
-    builder.add_from_string(select_window_ui_src.as_str()).unwrap();
+    builder
+        .add_from_string(select_window_ui_src.as_str())
+        .unwrap();
 
     // Get Objects from UI
     let area_apply_label: Label = builder.object("area_apply").unwrap();
@@ -161,6 +175,10 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
     // Temporary solution
     if is_wayland() {
         // Hide window grab button in Wayland
+        follow_mouse_switch.set_active(false);
+        follow_mouse_switch.set_sensitive(false);
+        area_switch.set_active(false);
+        area_switch.set_sensitive(false);
         area_grab_button.set_sensitive(false);
         area_grab_button.set_tooltip_text(Some(&get_bundle("wayland-tooltip", None)));
     }
@@ -179,16 +197,17 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
 
     // Format combobox
     format_chooser_combobox.append(Some("mp4"), &get_bundle("mp4-format", None));
-    format_chooser_combobox.append(
-        Some("mkv"),
-        &get_bundle("mkv-format", None),
-    );
+    format_chooser_combobox.append(Some("mkv"), &get_bundle("mkv-format", None));
     format_chooser_combobox.append(Some("webm"), &get_bundle("webm-format", None));
     format_chooser_combobox.append(Some("gif"), &get_bundle("gif-format", None));
     format_chooser_combobox.append(Some("avi"), &get_bundle("avi-format", None));
     format_chooser_combobox.append(Some("wmv"), &get_bundle("wmv-format", None));
     format_chooser_combobox.append(Some("nut"), &get_bundle("nut-format", None));
-    format_chooser_combobox.set_active(Some(config_management::get("default", "format").parse::<u32>().unwrap_or(0u32)));
+    format_chooser_combobox.set_active(Some(
+        config_management::get("default", "format")
+            .parse::<u32>()
+            .unwrap_or(0u32),
+    ));
 
     // Get audio sources
     #[cfg(target_os = "windows")]
@@ -207,7 +226,8 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
     };
 
     #[cfg(any(target_os = "freebsd", target_os = "linux"))]
-    let sources_descriptions: Vec<String> = sources_descriptions_list().unwrap_or_else(|_| Vec::new());
+    let sources_descriptions: Vec<String> =
+        sources_descriptions_list().unwrap_or_else(|_| Vec::new());
     #[cfg(any(target_os = "freebsd", target_os = "linux"))]
     let audio_output_source: String = audio_output_source().unwrap_or_else(|_| String::new());
 
@@ -398,12 +418,15 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
     frames_spin.set_tooltip_text(Some(&get_bundle("frames-tooltip", None)));
     video_bitrate_spin.set_tooltip_text(Some(&get_bundle("video-bitrate-tooltip", None)));
     frames_spin.set_value(
-        config_management::get("default",
-                               &format!
-                               ("frame-{}",
-                                &format_chooser_combobox.active().unwrap().to_string()))
-            .parse::<f64>()
-            .unwrap_or(0f64),
+        config_management::get(
+            "default",
+            &format!(
+                "frame-{}",
+                &format_chooser_combobox.active().unwrap().to_string()
+            ),
+        )
+        .parse::<f64>()
+        .unwrap_or(0f64),
     );
     audio_bitrate_spin.set_value(
         config_management::get("default", "audiobitrate")
@@ -416,12 +439,15 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
             .unwrap_or(0f64),
     );
     video_bitrate_spin.set_value(
-        config_management::get("default",
-                               &format!
-                               ("videobitrate-{}",
-                                &format_chooser_combobox.active().unwrap().to_string()))
-            .parse::<f64>()
-            .unwrap_or(0f64),
+        config_management::get(
+            "default",
+            &format!(
+                "videobitrate-{}",
+                &format_chooser_combobox.active().unwrap().to_string()
+            ),
+        )
+        .parse::<f64>()
+        .unwrap_or(0f64),
     );
 
     let _format_chooser_combobox = format_chooser_combobox.clone();
@@ -436,54 +462,66 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                 &_format_chooser_combobox.active().unwrap().to_string(),
             );
             _frames_spin.set_value(
-                config_management::get("default",
-                                       &format!
-                                       ("frame-{}",
-                                        &format_chooser_combobox.active().unwrap().to_string()))
-                    .parse::<f64>()
-                    .unwrap_or(0f64),
+                config_management::get(
+                    "default",
+                    &format!(
+                        "frame-{}",
+                        &format_chooser_combobox.active().unwrap().to_string()
+                    ),
+                )
+                .parse::<f64>()
+                .unwrap_or(0f64),
             );
             _video_bitrate_spin.set_value(
-                config_management::get("default",
-                                       &format!
-                                       ("videobitrate-{}",
-                                        &format_chooser_combobox.active().unwrap().to_string()))
-                    .parse::<f64>()
-                    .unwrap_or(0f64),
+                config_management::get(
+                    "default",
+                    &format!(
+                        "videobitrate-{}",
+                        &format_chooser_combobox.active().unwrap().to_string()
+                    ),
+                )
+                .parse::<f64>()
+                .unwrap_or(0f64),
             );
         }
     });
 
     let _audio_bitrate_spin = audio_bitrate_spin.to_owned();
     audio_bitrate_spin.connect_value_changed(move |_| {
-        config_management::set("default",
-                               "audio_bitrate",
-                               _audio_bitrate_spin.value().to_string().as_str());
+        config_management::set(
+            "default",
+            "audio_bitrate",
+            _audio_bitrate_spin.value().to_string().as_str(),
+        );
     });
     let _delay_spin = delay_spin.to_owned();
     delay_spin.connect_value_changed(move |_| {
-        config_management::set("default",
-                               "delay",
-                               _delay_spin.value().to_string().as_str());
+        config_management::set("default", "delay", _delay_spin.value().to_string().as_str());
     });
     let _frames_spin = frames_spin.to_owned();
     let _format_chooser_combobox = format_chooser_combobox.clone();
     frames_spin.connect_value_changed(move |_| {
-        config_management::set("default",
-                               &format!
-                               ("frame-{}",
-                                &_format_chooser_combobox.active().unwrap().to_string()),
-                               _frames_spin.value().to_string().as_str());
+        config_management::set(
+            "default",
+            &format!(
+                "frame-{}",
+                &_format_chooser_combobox.active().unwrap().to_string()
+            ),
+            _frames_spin.value().to_string().as_str(),
+        );
     });
     let _format_chooser_combobox = format_chooser_combobox.clone();
     let _video_bitrate_spin = video_bitrate_spin.to_owned();
     video_bitrate_spin.connect_value_changed(move |_| {
-        config_management::set("default",
-                               &format!
-                               ("videobitrate-{}",
-                                &_format_chooser_combobox.active().unwrap().to_string()),
-                               _video_bitrate_spin.value().to_string().as_str());
-     });
+        config_management::set(
+            "default",
+            &format!(
+                "videobitrate-{}",
+                &_format_chooser_combobox.active().unwrap().to_string()
+            ),
+            _video_bitrate_spin.value().to_string().as_str(),
+        );
+    });
 
     // Labels
     audio_bitrate_label.set_label(&get_bundle("audio-bitrate", None));
@@ -508,13 +546,15 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
             "default", "folder",
         )))
         .unwrap();
-    let folder_chooser = Some(File::for_path(&config_management::get(
-        "default", "folder",
-    )))
-    .unwrap();
+    let folder_chooser =
+        Some(File::for_path(&config_management::get("default", "folder"))).unwrap();
     let _error_dialog = error_dialog.clone();
     let _error_message = error_message.clone();
-    let folder_chooser_name = folder_chooser.basename().unwrap().to_string_lossy().to_string();
+    let folder_chooser_name = folder_chooser
+        .basename()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
     folder_chooser_label.set_label(&folder_chooser_name);
     let folder_chooser_icon = config_management::folder_icon(Some(folder_chooser_name.as_str()));
     folder_chooser_image.set_icon_name(Some(folder_chooser_icon));
@@ -579,7 +619,9 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
             _area_chooser_window.clone(),
             area_size_bottom_label.clone(),
             area_size_top_label.clone(),
-        ).is_err() {
+        )
+        .is_err()
+        {
             let text_buffer = TextBuffer::new(None);
             text_buffer.set_text("Failed to get area size value.");
             _error_message.set_buffer(Some(&text_buffer));
@@ -597,21 +639,21 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
     area_set_button.connect_clicked(move |_| {
         let text_buffer = TextBuffer::new(None);
         #[cfg(target_os = "windows")]
-        if _area_capture
-            .borrow_mut()
-            .get_active_window().is_err() {
-                text_buffer.set_text("Failed to get area size value.");
-                _error_message.set_buffer(Some(&text_buffer));
-                _error_dialog.show();
-            }
+        if _area_capture.borrow_mut().get_active_window().is_err() {
+            text_buffer.set_text("Failed to get area size value.");
+            _error_message.set_buffer(Some(&text_buffer));
+            _error_dialog.show();
+        }
         #[cfg(any(target_os = "freebsd", target_os = "linux"))]
         if _area_capture
             .borrow_mut()
-            .get_window_by_name(_area_chooser_window.title().unwrap().as_str()).is_err() {
-                text_buffer.set_text("Failed to get area size value.");
-                _error_message.set_buffer(Some(&text_buffer));
-                _error_dialog.show();
-            }
+            .get_window_by_name(_area_chooser_window.title().unwrap().as_str())
+            .is_err()
+        {
+            text_buffer.set_text("Failed to get area size value.");
+            _error_message.set_buffer(Some(&text_buffer));
+            _error_dialog.show();
+        }
         _area_chooser_window.hide();
     });
 
@@ -693,7 +735,8 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                     _error_message.set_buffer(Some(&text_buffer));
                     _error_dialog.show();
                 }
-            }}
+            }
+        }
     });
 
     // Disable mouse cursor capture if video record is not active
@@ -724,7 +767,7 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
         audio_source_label.clone().into(),
         audio_source_combobox.clone().into(),
         command_label.clone().into(),
-        command_entry.clone().into()
+        command_entry.clone().into(),
     ];
     // Temporary solution
     if !is_wayland() {
@@ -755,6 +798,30 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
     #[cfg(target_os = "windows")]
     let window_title = window_title.borrow_mut().title.clone();
 
+    // Record button
+    delay_window_button.set_label(&get_bundle("delay-window-stop", None));
+    delay_window_title.set_label(&get_bundle("delay-title", None));
+    record_button.set_tooltip_text(Some(&get_bundle("record-tooltip", None)));
+    record_label.set_label(&get_bundle("record", None));
+    let _audio_input_switch = audio_input_switch.clone();
+    let _audio_output_switch = audio_output_switch.clone();
+    let _delay_spin = delay_spin.clone();
+    let _delay_window = delay_window.clone();
+    let _delay_window_button = delay_window_button.clone();
+    let _error_dialog = error_dialog.clone();
+    let _error_message = error_message.clone();
+    let _follow_mouse_switch = follow_mouse_switch.clone();
+    let mut _input_widgets = input_widgets.clone();
+    let main_context = glib::MainContext::default();
+    let _main_window = main_window.clone();
+    let _mouse_switch = mouse_switch.clone();
+    let _play_button = play_button.clone();
+    let _record_button = record_button.clone();
+    let _record_time_label = record_time_label.clone();
+    let _stop_button = stop_button.clone();
+    let _video_switch = video_switch.clone();
+    let wayland_record = main_context.block_on(WaylandRecorder::new());
+
     // Init record struct
     #[cfg(target_os = "windows")]
     let ffmpeg_record_interface: Rc<RefCell<Ffmpeg>> = Rc::new(RefCell::new(Ffmpeg {
@@ -784,7 +851,7 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
         follow_mouse: follow_mouse_switch.clone(),
         record_mouse: mouse_switch.clone(),
         show_area: area_switch,
-        video_switch: video_switch.clone()
+        video_switch: video_switch.clone(),
     }));
     #[cfg(any(target_os = "freebsd", target_os = "linux"))]
     let ffmpeg_record_interface: Rc<RefCell<Ffmpeg>> = Rc::new(RefCell::new(Ffmpeg {
@@ -811,36 +878,15 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
         follow_mouse: follow_mouse_switch.clone(),
         record_mouse: mouse_switch.clone(),
         show_area: area_switch,
-        video_switch: video_switch.clone()
+        video_switch: video_switch.clone(),
+        wayland_recorder: wayland_record,
     }));
 
-    // Record button
-    delay_window_button.set_label(&get_bundle("delay-window-stop", None));
-    delay_window_title.set_label(&get_bundle("delay-title", None));
-    record_button.set_tooltip_text(Some(&get_bundle("record-tooltip", None)));
-    record_label.set_label(&get_bundle("record", None));
-    let _audio_input_switch = audio_input_switch.clone();
-    let _audio_output_switch = audio_output_switch.clone();
-    let _delay_spin = delay_spin.clone();
-    let _delay_window = delay_window.clone();
-    let _delay_window_button = delay_window_button.clone();
-    let _error_dialog = error_dialog.clone();
-    let _error_message = error_message.clone();
-    let _follow_mouse_switch = follow_mouse_switch.clone();
-    let mut _input_widgets = input_widgets.clone();
-    //let main_context = glib::MainContext::default();
-    let _main_window = main_window.clone();
-    let _mouse_switch = mouse_switch.clone();
-    let _play_button = play_button.clone();
-    let _record_button = record_button.clone();
-    let _record_time_label = record_time_label.clone();
-    let _stop_button = stop_button.clone();
-    let _video_switch = video_switch.clone();
-    //let wayland_record = main_context.block_on(WaylandRecorder::new());
     let mut _ffmpeg_record_interface = ffmpeg_record_interface.clone();
     let second_click: Rc<RefCell<RecordClick>> = Rc::new(RefCell::new(RecordClick {
         is_record_button_clicked: false,
     }));
+
     record_button.connect_clicked(move |_| {
         // Disable mouse cursor capture during record
         if _video_switch.is_active() {
@@ -860,29 +906,31 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                 text_buffer.set_text(&format!("{}", error));
                 _error_message.set_buffer(Some(&text_buffer));
                 _error_dialog.show();
-            },
+            }
             Ok(_) => {
                 // Continue
-            },
+            }
         }
-        if !_audio_input_switch.is_active() &&
-            !_audio_output_switch.is_active() &&
-            !_video_switch.is_active() ||
-            !second_click.borrow_mut().is_clicked() &&
-            _delay_spin.value() as u16 == 0 &&
-            !is_overwrite(&get_bundle("already-exist", None),
-                          &_ffmpeg_record_interface.borrow_mut().saved_filename,
-                          _main_window.clone()
-            )
+        if !_audio_input_switch.is_active()
+            && !_audio_output_switch.is_active()
+            && !_video_switch.is_active()
+            || !second_click.borrow_mut().is_clicked()
+                && _delay_spin.value() as u16 == 0
+                && !is_overwrite(
+                    &get_bundle("already-exist", None),
+                    &_ffmpeg_record_interface.borrow_mut().saved_filename,
+                    _main_window.clone(),
+                )
         {
             // Do nothing
         } else {
             _delay_window_button.set_active(false);
             if _delay_spin.value() as u16 > 0 {
-                if !is_overwrite(&get_bundle("already-exist", None),
-                                 &_ffmpeg_record_interface.borrow_mut().saved_filename,
-                                 _main_window.clone())
-                {
+                if !is_overwrite(
+                    &get_bundle("already-exist", None),
+                    &_ffmpeg_record_interface.borrow_mut().saved_filename,
+                    _main_window.clone(),
+                ) {
                     //Do nothing
                 } else {
                     recording_delay(
@@ -895,7 +943,7 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                         second_click.clone(),
                     );
                 }
-            } else if _delay_spin.value() as u16 == 0 && !is_wayland() {
+            } else if _delay_spin.value() as u16 == 0 {
                 let _area_capture = area_capture.borrow_mut();
                 disable_input_widgets(_input_widgets.clone());
                 start_timer(record_time_label.clone());
@@ -910,7 +958,7 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                     match _ffmpeg_record_interface.borrow_mut().start_input_audio() {
                         Ok(_) => {
                             // Do nothing
-                        },
+                        }
                         Err(error) => {
                             if _video_switch.is_active() {
                                 _mouse_switch.set_sensitive(true);
@@ -923,14 +971,17 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                             text_buffer.set_text(&format!("{}", error));
                             _error_message.set_buffer(Some(&text_buffer));
                             _error_dialog.show();
-                        },
+                        }
                     }
                 }
-                if _audio_output_switch.is_active() && !_audio_input_switch.is_active()  && !_video_switch.is_active() {
+                if _audio_output_switch.is_active()
+                    && !_audio_input_switch.is_active()
+                    && !_video_switch.is_active()
+                {
                     match _ffmpeg_record_interface.borrow_mut().start_output_audio() {
                         Ok(_) => {
                             // Do nothing
-                        },
+                        }
                         Err(error) => {
                             if _video_switch.is_active() {
                                 _mouse_switch.set_sensitive(true);
@@ -943,7 +994,7 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                             text_buffer.set_text(&format!("{}", error));
                             _error_message.set_buffer(Some(&text_buffer));
                             _error_dialog.show();
-                        },
+                        }
                     }
                 }
                 if _video_switch.is_active() {
@@ -952,11 +1003,11 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                         _area_capture.y,
                         _area_capture.width,
                         _area_capture.height,
-                        mode
+                        mode,
                     ) {
                         Ok(_) => {
                             // Do nothing
-                        },
+                        }
                         Err(error) => {
                             if _video_switch.is_active() {
                                 _mouse_switch.set_sensitive(true);
@@ -969,7 +1020,7 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                             text_buffer.set_text(&format!("{}", error));
                             _error_message.set_buffer(Some(&text_buffer));
                             _error_dialog.show();
-                        },
+                        }
                     }
                 }
             }
@@ -998,7 +1049,7 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
             match _ffmpeg_record_interface.borrow_mut().stop_input_audio() {
                 Ok(_) => {
                     // Continue
-                },
+                }
                 Err(error) => {
                     if _video_switch.is_active() {
                         _mouse_switch.set_sensitive(true);
@@ -1012,14 +1063,17 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                     text_buffer.set_text(&format!("{}", error));
                     _error_message.set_buffer(Some(&text_buffer));
                     _error_dialog.show();
-                },
+                }
             }
         }
-        if _audio_output_switch.is_active() && !_audio_input_switch.is_active() && !_video_switch.is_active() {
+        if _audio_output_switch.is_active()
+            && !_audio_input_switch.is_active()
+            && !_video_switch.is_active()
+        {
             match _ffmpeg_record_interface.borrow_mut().stop_output_audio() {
                 Ok(_) => {
                     // Continue
-                },
+                }
                 Err(error) => {
                     if _video_switch.is_active() {
                         _mouse_switch.set_sensitive(true);
@@ -1033,14 +1087,14 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                     text_buffer.set_text(&format!("{}", error));
                     _error_message.set_buffer(Some(&text_buffer));
                     _error_dialog.show();
-                },
+                }
             }
         }
         if _video_switch.is_active() {
             match _ffmpeg_record_interface.borrow_mut().stop_video() {
                 Ok(_) => {
                     // Continue
-                },
+                }
                 Err(error) => {
                     if _video_switch.is_active() {
                         _mouse_switch.set_sensitive(true);
@@ -1054,7 +1108,7 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
                     text_buffer.set_text(&format!("{}", error));
                     _error_message.set_buffer(Some(&text_buffer));
                     _error_dialog.show();
-                },
+                }
             }
         }
         if _video_switch.is_active() {
@@ -1083,13 +1137,13 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
         match play_record(&file_name) {
             Ok(_) => {
                 // Do nothing
-            },
+            }
             Err(error) => {
                 let text_buffer = TextBuffer::new(None);
                 text_buffer.set_text(&format!("{}", error));
                 _error_message.set_buffer(Some(&text_buffer));
                 _error_dialog.show();
-            },
+            }
         }
     });
 
@@ -1125,42 +1179,46 @@ fn build_ui(application: &Application, error_dialog: MessageDialog, error_messag
     // Authors
     about_dialog.add_credit_section(
         &get_bundle("authors", None),
-        &[&get_bundle("address-abdullah-al-baroty", None),
-          &get_bundle("address-alessandro-toia", None),
-          &get_bundle("address-chibani", None),
-          &get_bundle("address-hamir-mahal", None),
-          &get_bundle("address-hanny-sabbagh", None),
-          &get_bundle("address-salem-yaslem", None),
-          &get_bundle("address-suliman-altassan", None),
-        ]
+        &[
+            &get_bundle("address-abdullah-al-baroty", None),
+            &get_bundle("address-alessandro-toia", None),
+            &get_bundle("address-chibani", None),
+            &get_bundle("address-hamir-mahal", None),
+            &get_bundle("address-hanny-sabbagh", None),
+            &get_bundle("address-salem-yaslem", None),
+            &get_bundle("address-suliman-altassan", None),
+        ],
     );
     // Patreon suppoters
     about_dialog.add_credit_section(
         &get_bundle("patreon", None),
-        &[&get_bundle("address-ahmad-gharib", None),
-          &get_bundle("address-medium", None),
-          &get_bundle("address-william-grunow", None),
-          &get_bundle("address-alex-benishek", None),
-        ]
+        &[
+            &get_bundle("address-ahmad-gharib", None),
+            &get_bundle("address-medium", None),
+            &get_bundle("address-william-grunow", None),
+            &get_bundle("address-alex-benishek", None),
+        ],
     );
     // Designers
     about_dialog.add_credit_section(
         &get_bundle("design", None),
-        &[&get_bundle("address-abdullah-al-baroty", None),
-          &get_bundle("address-mustapha-assabar", None),
-        ]
+        &[
+            &get_bundle("address-abdullah-al-baroty", None),
+            &get_bundle("address-mustapha-assabar", None),
+        ],
     );
     // Translators
     about_dialog.add_credit_section(
         &get_bundle("translate", None),
-        &[&get_bundle("address-ake-engelbrektson", None),
-          &get_bundle("address-amerey", None),
-          &get_bundle("address-gmou3", None),
-          &get_bundle("address-larry-wei", None),
-          &get_bundle("address-mark-wagie", None),
-          &get_bundle("address-albanobattistella", None),
-          &get_bundle("address-mr-Narsus", None),
-       ]
+        &[
+            &get_bundle("address-ake-engelbrektson", None),
+            &get_bundle("address-amerey", None),
+            &get_bundle("address-gmou3", None),
+            &get_bundle("address-larry-wei", None),
+            &get_bundle("address-mark-wagie", None),
+            &get_bundle("address-albanobattistella", None),
+            &get_bundle("address-mr-Narsus", None),
+        ],
     );
 
     // Windows
