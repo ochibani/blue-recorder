@@ -237,7 +237,7 @@ impl WaylandRecorder {
 
         // launch gstreamer pipeline
         let gst_element: gst::Element = gst::parse::launch(&format!(
-                "pipewiresrc path={stream_node_id} ! videorate ! video/x-raw,framerate=30/1 ! videoconvert chroma-mode=none dither=none matrix-mode=output-only ! vp8enc max-quantizer=17 deadline=1 keyframe-mode=disabled buffer-size=20000 ! webmmux ! filesink location={filename}",
+                "pipewiresrc path={stream_node_id} ! videorate ! video/x-raw,framerate=60/1 ! videoconvert ! vp8enc min-quantizer=0 max-quantizer=1 keyframe-mode=disabled buffer-size=20000 ! webmmux ! filesink location={filename}",
                 filename = self.filename
             )).expect("failed to launch gstreamer pipeline");
 
