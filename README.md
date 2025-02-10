@@ -22,6 +22,7 @@ Blue Recorder depends on the following dependencies:
 ffmpeg
 gstreamer
 libadwaita
+libxfixes
 pipewire
 pipewire-pulse
 xwininfo
@@ -29,7 +30,7 @@ xwininfo
 
 Install dependencies for Ubuntu and Debian-based distros:
 ```
-sudo apt install build-essential clang cargo x11-utils ffmpeg libadwaita-1-dev libgstreamer1.0-dev libpipewire-0.3-dev pipewire-pulse
+sudo apt install build-essential cargo clang ffmpeg libadwaita-1-dev libgstreamer1.0-dev libpipewire-0.3-dev libxfixes pipewire-pulse pulseaudio-utils x11-utils
 ```
 Then use `Cargo` to build it:
 ```
